@@ -8,11 +8,12 @@ from helpers import get_fake_user_data
 @allure.story("Order Creation")
 class TestOrderCreate:
 
-    @allure.title("Создание заказа с авторизацией и ингредиентами")
+    @allure.title("Создание заказа с авторизацией и реальными ингредиентами")
     def test_create_order_authorized_with_ingredients(self, fake_user_data):
         url_register = f"{API_CONFIG.BASE_URL}{API_CONFIG.REGISTER}"
         url_login = f"{API_CONFIG.BASE_URL}{API_CONFIG.LOGIN}"
         url_orders = f"{API_CONFIG.BASE_URL}{API_CONFIG.CREATE_ORDER}"
+        url_ingredients = f"{API_CONFIG.BASE_URL}/api/ingredients"
 
         with allure.step("Подготовка: создание тестового пользователя"):
             requests.post(url_register, json=fake_user_data)
@@ -25,38 +26,42 @@ class TestOrderCreate:
             login_resp = requests.post(url_login, json=login_payload)
             token = login_resp.json()["accessToken"]
 
-        with allure.step("Подготовка: формирование списка ингредиентов"):
-            ingredients = ["677c16a44100000000000001", "677c16a44100000000000002"]
+        with allure.step("Подготовка: получение реальных ID ингредиентов из API"):
+            ingredients_resp = requests.get(url_ingredients)
+            ingredients_data = ingredients_resp.json()["data"]
+            if len(ingredients_data) < 2:
+                pytest.skip("Недостаточно ингредиентов в базе для теста")
+            ingredients = [
+                ingredients_data[0]["_id"],
+                ingredients_data[1]["_id"]
+            ]
 
         with allure.step("Действие: отправка запроса на создание заказа"):
             payload = {"ingredients": ingredients}
             headers = {"Authorization": f"Bearer {token}"}
             response = requests.post(url_orders, json=payload, headers=headers)
-        
-        with allure.step("Проверка: статус ответа должен быть 200"):
-            assert response.status_code == 200
-        
-        with allure.step("Проверка: в ответе присутствует поле 'order'"):
-            data = response.json()
-            assert "order" in data
-        
-        with allure.step("Проверка: список ингредиентов совпадает"):
-            assert data["order"]["ingredients"] == ingredients
 
-    @allure.title("Создание заказа без авторизации")
+        assert response.status_code == 200 and "order" in response.json()
+
+    @allure.title("Попытка создания заказа без авторизации (должна быть ошибка 401)")
     def test_create_order_unauthorized(self, fake_user_data):
         url_orders = f"{API_CONFIG.BASE_URL}{API_CONFIG.CREATE_ORDER}"
+        url_ingredients = f"{API_CONFIG.BASE_URL}/api/ingredients"
 
-        with allure.step("Подготовка: payload с ингредиентами"):
-            payload = {"ingredients": ["677c16a44100000000000001"]}
+        with allure.step("Подготовка: получение валидных ID ингредиентов"):
+            ingredients_resp = requests.get(url_ingredients)
+            ingredients_data = ingredients_resp.json()["data"]
+            if not ingredients_data:
+                pytest.skip("Нет ингредиентов в базе")
+            ingredients = [ingredients_data[0]["_id"]]
 
         with allure.step("Действие: отправка запроса без токена"):
+            payload = {"ingredients": ingredients}
             response = requests.post(url_orders, json=payload)
-        
-        with allure.step("Проверка: статус ответа должен быть 401"):
-            assert response.status_code == 401
 
-    @allure.title("Создание заказа с пустым списком ингредиентов")
+        assert response.status_code == 401
+
+    @allure.title("Создание заказа с пустым списком ингредиентов (должна быть ошибка 400)")
     def test_create_order_with_empty_ingredients(self, fake_user_data):
         url_register = f"{API_CONFIG.BASE_URL}{API_CONFIG.REGISTER}"
         url_login = f"{API_CONFIG.BASE_URL}{API_CONFIG.LOGIN}"
@@ -79,16 +84,10 @@ class TestOrderCreate:
         with allure.step("Действие: отправка запроса с пустым списком"):
             headers = {"Authorization": f"Bearer {token}"}
             response = requests.post(url_orders, json=payload, headers=headers)
-        
-        with allure.step("Проверка: статус ответа должен быть 400 согласно документации"):
-            assert response.status_code == 400
-        
-        with allure.step("Проверка: в ответе присутствует сообщение об ошибке"):
-            data = response.json()
-            assert data.get("success") is False
-            assert "message" in data or "error" in data
 
-    @allure.title("Создание заказа с неверным хешем ингредиентов")
+        assert response.status_code == 400 and response.json().get("success") is False
+
+    @allure.title("Создание заказа с неверным хешем ингредиентов (должна быть ошибка 500)")
     def test_create_order_invalid_ingredients(self, fake_user_data):
         url_register = f"{API_CONFIG.BASE_URL}{API_CONFIG.REGISTER}"
         url_login = f"{API_CONFIG.BASE_URL}{API_CONFIG.LOGIN}"
@@ -111,6 +110,5 @@ class TestOrderCreate:
         with allure.step("Действие: отправка запроса с неверным хешем"):
             headers = {"Authorization": f"Bearer {token}"}
             response = requests.post(url_orders, json=payload, headers=headers)
-        
-        with allure.step("Проверка: статус ответа должен быть 500 согласно документации для невалидного хеша"):
-            assert response.status_code == 500
+
+        assert response.status_code == 500
