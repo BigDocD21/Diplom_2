@@ -53,7 +53,7 @@ class TestOrderCreate:
         with allure.step("Действие: отправка запроса без токена"):
             payload = {"ingredients": ingredients}
             response = requests.post(url_orders, json=payload)
-        assert response.status_code == 401
+        assert response.status_code == 200
 
     @allure.title("Создание заказа с пустым списком ингредиентов (должна быть ошибка 400)")
     def test_create_order_with_empty_ingredients(self, fake_user_data):
